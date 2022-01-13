@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "mwmbl-crawler-server"
+version = "0.1.0"
+description = "Server for Mwmbl's web crawler"
+authors = ["Daoud Clarke <daoud.clarke@gmail.com>"]
+license = "AGPL"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.71.0"
+uvicorn = "^0.16.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
