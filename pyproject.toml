@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "mwmbl-crawler-server"
+name = "crawler_server"
 version = "0.1.0"
 description = "Server for Mwmbl's web crawler"
 authors = ["Daoud Clarke <daoud.clarke@gmail.com>"]

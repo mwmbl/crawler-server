@@ -18,7 +18,8 @@ ENV PIP_DEFAULT_TIMEOUT=100 \
 RUN python -m venv /venv
 
 # Copy only the necessary files to build/install the python package
-COPY pyproject.toml poetry.lock app.py /app/
+COPY pyproject.toml poetry.lock /app/
+COPY crawler_server /app/crawler_server
 
 # Working directory is /app
 # Use pip to install the mwmbl python package
@@ -33,9 +34,5 @@ FROM base as final
 COPY --from=builder /venv /venv
 
 # Working directory is /app
-# Copying data and config into /app so that relative (default) paths in the config work
-COPY data /app/data
-COPY config /app/config
-
 # Run the server with Uvicorn
-CMD ["/venv/bin/uvicorn", "app:app"]
+CMD ["/venv/bin/uvicorn", "crawler_server.app:app"]
