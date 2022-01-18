@@ -35,4 +35,4 @@ COPY --from=builder /venv /venv
 
 # Working directory is /app
 # Run the server with Uvicorn
-CMD ["/venv/bin/uvicorn", "crawler_server.app:app"]
+CMD ["/venv/bin/uvicorn", "--port", "8080", "crawler_server.app:app"]
