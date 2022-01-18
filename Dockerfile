@@ -18,8 +18,7 @@ ENV PIP_DEFAULT_TIMEOUT=100 \
 RUN python -m venv /venv
 
 # Copy only the necessary files to build/install the python package
-COPY pyproject.toml poetry.lock /app/
-COPY mwmbl /app/mwmbl
+COPY pyproject.toml poetry.lock app.py /app/
 
 # Working directory is /app
 # Use pip to install the mwmbl python package
