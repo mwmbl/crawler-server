@@ -15,6 +15,7 @@ KEY_ID = os.environ['MWMBL_KEY_ID']
 ENDPOINT_URL = 'https://s3.us-west-004.backblazeb2.com'
 BUCKET_NAME = 'mwmbl-crawl'
 MAX_BATCH_SIZE = 100
+USER_ID_LENGTH = 36
 VERSION = 'v1'
 
 
@@ -28,9 +29,11 @@ def upload(data: bytes, name: str):
 
 class Item(BaseModel):
     timestamp: int
+    source: str
     url: str
     title: str
     extract: str
+    links: list[str]
 
 
 class Batch(BaseModel):
@@ -51,6 +54,9 @@ app = FastAPI()
 def create_batch(batch: Batch):
     if len(batch.items) > MAX_BATCH_SIZE:
         raise HTTPException(400, f"Batch size too large (maximum {MAX_BATCH_SIZE}), got {len(batch.items)}")
+
+    if len(batch.user_id) != USER_ID_LENGTH:
+        raise HTTPException(400, f"User ID length is incorrect, should be {USER_ID_LENGTH} characters")
 
     print("Got batch", batch)
 
@@ -76,7 +82,6 @@ def create_batch(batch: Batch):
 
     return {
         'status': 'ok',
-        'batch_url': 'url',
     }
 
 
