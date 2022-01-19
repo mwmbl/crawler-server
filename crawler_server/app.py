@@ -15,6 +15,7 @@ KEY_ID = os.environ['MWMBL_KEY_ID']
 ENDPOINT_URL = 'https://s3.us-west-004.backblazeb2.com'
 BUCKET_NAME = 'mwmbl-crawl'
 MAX_BATCH_SIZE = 100
+VERSION = 'v1'
 
 
 def upload(data: bytes, name: str):
@@ -65,7 +66,7 @@ def create_batch(batch: Batch):
 
     # See discussion here: https://stackoverflow.com/a/13484764
     uid = str(uuid4())[:8]
-    filename = f'crawl-{now.date()}-{user_id_hash}-{padded_seconds}-{uid}.json.gz'
+    filename = f'1/{VERSION}/{now.date()}/{user_id_hash[:4]}/{user_id_hash}__{padded_seconds}__{uid}.json.gz'
 
     # Using an approach from https://stackoverflow.com/a/30476450
     epoch_time = (now - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds()
