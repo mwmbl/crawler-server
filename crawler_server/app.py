@@ -2,7 +2,9 @@ import gzip
 import hashlib
 import json
 import os
+import re
 from datetime import date, datetime, timezone
+from itertools import groupby
 from uuid import uuid4
 
 import boto3
@@ -17,13 +19,19 @@ BUCKET_NAME = 'mwmbl-crawl'
 MAX_BATCH_SIZE = 100
 USER_ID_LENGTH = 36
 VERSION = 'v1'
+DATE_REGEX = re.compile(r'\d{4}-\d{2}-\d{2}')
+PUBLIC_URL_PREFIX = f'https://f004.backblazeb2.com/file/{BUCKET_NAME}/'
+
+
+def get_bucket(name):
+    s3 = boto3.resource('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
+                        aws_secret_access_key=APPLICATION_KEY)
+    return s3.Object(BUCKET_NAME, name)
 
 
 def upload(data: bytes, name: str):
-    s3 = boto3.resource('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
-                        aws_secret_access_key=APPLICATION_KEY)
-    s3_object = s3.Object(BUCKET_NAME, name)
-    result = s3_object.put(Body=data)
+    bucket = get_bucket(name)
+    result = bucket.put(Body=data)
     return result
 
 
@@ -60,8 +68,7 @@ def create_batch(batch: Batch):
 
     print("Got batch", batch)
 
-    user_id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
-    print("User ID hash", user_id_hash)
+    user_id_hash = get_user_id_hash(batch)
 
     now = datetime.now(timezone.utc)
     seconds = (now - datetime(now.year, now.month, now.day, tzinfo=timezone.utc)).seconds
@@ -83,6 +90,55 @@ def create_batch(batch: Batch):
     return {
         'status': 'ok',
     }
+
+
+def get_user_id_hash(batch):
+    user_id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
+    print("User ID hash", user_id_hash)
+    return user_id_hash
+
+
+@app.get('/batches/{date_str}')
+def get_batches(date_str: str):
+    check_date_str(date_str)
+
+    s3 = boto3.resource('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
+                        aws_secret_access_key=APPLICATION_KEY)
+    bucket = s3.Bucket(BUCKET_NAME)
+    items = bucket.objects.filter(Prefix=f'1/{VERSION}/{date_str}/')
+    sorted_items = sorted(item.key.rsplit('/', 1) for item in items)
+
+    results = []
+    for path, group in groupby(sorted_items, key=lambda x: x[0]):
+        results.append({
+            'url': f'{PUBLIC_URL_PREFIX}{path}/',
+            'files': [g[1] for g in group],
+        })
+
+    return results
+
+
+@app.get('/batches/{date_str}/users')
+def get_user_id_hashes_for_date(date_str: str):
+    check_date_str(date_str)
+    prefix = f'1/{VERSION}/{date_str}/1/'
+    return get_subfolders(prefix)
+
+
+def check_date_str(date_str):
+    if not DATE_REGEX.match(date_str):
+        raise HTTPException(400, f"Incorrect date format, should be YYYY-MM-DD")
+
+
+def get_subfolders(prefix):
+    client = boto3.client('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
+                          aws_secret_access_key=APPLICATION_KEY)
+    items = client.list_objects(Bucket=BUCKET_NAME,
+                                Prefix=prefix,
+                                Delimiter='/')
+    print("Got items", items)
+    item_keys = [item['Prefix'][len(prefix):].strip('/') for item in items['CommonPrefixes']]
+    return item_keys
 
 
 @app.get('/')
