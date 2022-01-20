@@ -72,7 +72,7 @@ def create_batch(batch: Batch):
 
     # See discussion here: https://stackoverflow.com/a/13484764
     uid = str(uuid4())[:8]
-    filename = f'1/{VERSION}/{now.date()}/{user_id_hash[:4]}/{user_id_hash}__{padded_seconds}__{uid}.json.gz'
+    filename = f'1/{VERSION}/{now.date()}/1/{user_id_hash}/{padded_seconds}__{uid}.json.gz'
 
     # Using an approach from https://stackoverflow.com/a/30476450
     epoch_time = (now - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds()
