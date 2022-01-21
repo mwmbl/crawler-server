@@ -1,9 +1,8 @@
 import gzip
 import hashlib
-import json
 import os
 import re
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from itertools import groupby
 from uuid import uuid4
 
@@ -18,6 +17,7 @@ ENDPOINT_URL = 'https://s3.us-west-004.backblazeb2.com'
 BUCKET_NAME = 'mwmbl-crawl'
 MAX_BATCH_SIZE = 100
 USER_ID_LENGTH = 36
+PUBLIC_USER_ID_LENGTH = 64
 VERSION = 'v1'
 DATE_REGEX = re.compile(r'\d{4}-\d{2}-\d{2}')
 PUBLIC_URL_PREFIX = f'https://f004.backblazeb2.com/file/{BUCKET_NAME}/'
@@ -68,7 +68,9 @@ def create_batch(batch: Batch):
 
     print("Got batch", batch)
 
-    user_id_hash = get_user_id_hash(batch)
+    id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
+    print("User ID hash", id_hash)
+    user_id_hash = id_hash
 
     now = datetime.now(timezone.utc)
     seconds = (now - datetime(now.year, now.month, now.day, tzinfo=timezone.utc)).seconds
@@ -89,32 +91,39 @@ def create_batch(batch: Batch):
 
     return {
         'status': 'ok',
+        'public_user_id': user_id_hash,
     }
 
 
-def get_user_id_hash(batch):
-    user_id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
-    print("User ID hash", user_id_hash)
-    return user_id_hash
-
-
 @app.get('/batches/{date_str}')
-def get_batches(date_str: str):
+def get_batches_for_date(date_str: str):
     check_date_str(date_str)
 
+    prefix = f'1/{VERSION}/{date_str}/'
+    return get_batches_for_prefix(prefix)
+
+
+@app.get('/batches/{date_str}/users/{public_user_id}')
+def get_batches_for_date_and_user(date_str, public_user_id):
+    check_date_str(date_str)
+    if len(public_user_id) != PUBLIC_USER_ID_LENGTH:
+        raise HTTPException(400, f"Incorrect public user ID length, should be {PUBLIC_USER_ID_LENGTH}")
+    prefix = f'1/{VERSION}/{date_str}/1/{public_user_id}/'
+    return get_batches_for_prefix(prefix)
+
+
+def get_batches_for_prefix(prefix):
     s3 = boto3.resource('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
                         aws_secret_access_key=APPLICATION_KEY)
     bucket = s3.Bucket(BUCKET_NAME)
-    items = bucket.objects.filter(Prefix=f'1/{VERSION}/{date_str}/')
+    items = bucket.objects.filter(Prefix=prefix)
     sorted_items = sorted(item.key.rsplit('/', 1) for item in items)
-
     results = []
     for path, group in groupby(sorted_items, key=lambda x: x[0]):
         results.append({
             'url': f'{PUBLIC_URL_PREFIX}{path}/',
             'files': [g[1] for g in group],
         })
-
     return results
 
 
