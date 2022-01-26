@@ -58,6 +58,9 @@ class HashedBatch(BaseModel):
 app = FastAPI()
 
 
+last_batch = None
+
+
 @app.post('/batches/')
 def create_batch(batch: Batch):
     if len(batch.items) > MAX_BATCH_SIZE:
@@ -89,6 +92,9 @@ def create_batch(batch: Batch):
     data = gzip.compress(hashed_batch.json().encode('utf8'))
     upload(data, filename)
 
+    global last_batch
+    last_batch = hashed_batch
+
     return {
         'status': 'ok',
         'public_user_id': user_id_hash,
@@ -110,6 +116,11 @@ def get_batches_for_date_and_user(date_str, public_user_id):
         raise HTTPException(400, f"Incorrect public user ID length, should be {PUBLIC_USER_ID_LENGTH}")
     prefix = f'1/{VERSION}/{date_str}/1/{public_user_id}/'
     return get_batches_for_prefix(prefix)
+
+
+@app.get('/latest-batch', response_model=list[HashedBatch])
+def get_latest_batch():
+    return [] if last_batch is None else [last_batch]
 
 
 def get_batches_for_prefix(prefix):
