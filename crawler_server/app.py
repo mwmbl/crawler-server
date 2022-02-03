@@ -1,10 +1,11 @@
 import gzip
 import hashlib
+import json
 import os
 import re
 from datetime import datetime, timezone
-from itertools import groupby
 from uuid import uuid4
+import requests
 
 import boto3
 from fastapi import FastAPI, HTTPException
@@ -21,6 +22,7 @@ PUBLIC_USER_ID_LENGTH = 64
 VERSION = 'v1'
 DATE_REGEX = re.compile(r'\d{4}-\d{2}-\d{2}')
 PUBLIC_URL_PREFIX = f'https://f004.backblazeb2.com/file/{BUCKET_NAME}/'
+FILE_NAME_SUFFIX = '.json.gz'
 
 
 def get_bucket(name):
@@ -101,21 +103,26 @@ def create_batch(batch: Batch):
     }
 
 
-@app.get('/batches/{date_str}')
-def get_batches_for_date(date_str: str):
-    check_date_str(date_str)
-
-    prefix = f'1/{VERSION}/{date_str}/'
-    return get_batches_for_prefix(prefix)
-
-
 @app.get('/batches/{date_str}/users/{public_user_id}')
 def get_batches_for_date_and_user(date_str, public_user_id):
     check_date_str(date_str)
-    if len(public_user_id) != PUBLIC_USER_ID_LENGTH:
-        raise HTTPException(400, f"Incorrect public user ID length, should be {PUBLIC_USER_ID_LENGTH}")
+    check_public_user_id(public_user_id)
     prefix = f'1/{VERSION}/{date_str}/1/{public_user_id}/'
     return get_batches_for_prefix(prefix)
+
+
+def check_public_user_id(public_user_id):
+    if len(public_user_id) != PUBLIC_USER_ID_LENGTH:
+        raise HTTPException(400, f"Incorrect public user ID length, should be {PUBLIC_USER_ID_LENGTH}")
+
+
+@app.get('/batches/{date_str}/users/{public_user_id}/batch/{batch_id}')
+def get_batch_from_id(date_str, public_user_id, batch_id):
+    check_date_str(date_str)
+    check_public_user_id(public_user_id)
+    url = f'{PUBLIC_URL_PREFIX}1/{VERSION}/{date_str}/1/{public_user_id}/{batch_id}{FILE_NAME_SUFFIX}'
+    data = json.loads(gzip.decompress(requests.get(url).content))
+    return data
 
 
 @app.get('/latest-batch', response_model=list[HashedBatch])
@@ -123,18 +130,18 @@ def get_latest_batch():
     return [] if last_batch is None else [last_batch]
 
 
+def get_batch_id_from_file_name(file_name: str):
+    assert file_name.endswith(FILE_NAME_SUFFIX)
+    return file_name[:-len(FILE_NAME_SUFFIX)]
+
+
 def get_batches_for_prefix(prefix):
     s3 = boto3.resource('s3', endpoint_url=ENDPOINT_URL, aws_access_key_id=KEY_ID,
                         aws_secret_access_key=APPLICATION_KEY)
     bucket = s3.Bucket(BUCKET_NAME)
     items = bucket.objects.filter(Prefix=prefix)
-    sorted_items = sorted(item.key.rsplit('/', 1) for item in items)
-    results = []
-    for path, group in groupby(sorted_items, key=lambda x: x[0]):
-        results.append({
-            'url': f'{PUBLIC_URL_PREFIX}{path}/',
-            'files': [g[1] for g in group],
-        })
+    file_names = sorted(item.key.rsplit('/', 1)[1] for item in items)
+    results = {'batch_ids': [get_batch_id_from_file_name(name) for name in file_names]}
     return results
 
 
