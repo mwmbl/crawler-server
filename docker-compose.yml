@@ -1,0 +1,12 @@
+version: "2.1"
+services:
+  mwmbl_api:
+    build: .
+    container_name: mwmbl_api
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app
+    ports:
+      - 8080:8080
+    restart: unless-stopped
