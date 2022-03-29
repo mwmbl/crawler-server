@@ -14,8 +14,8 @@ from pydantic import BaseModel
 
 APPLICATION_KEY = os.environ['MWMBL_APPLICATION_KEY']
 KEY_ID = os.environ['MWMBL_KEY_ID']
-ENDPOINT_URL = 'https://s3.us-west-004.backblazeb2.com'
-BUCKET_NAME = 'mwmbl-crawl'
+ENDPOINT_URL = os.environ['S3_ENDPOINT']
+BUCKET_NAME = os.environ['BUCKET']
 MAX_BATCH_SIZE = 100
 USER_ID_LENGTH = 36
 PUBLIC_USER_ID_LENGTH = 64
