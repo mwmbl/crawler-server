@@ -58,7 +58,27 @@ def update_url_status(conn, url_statuses: list[URLStatus]):
         execute_values(cursor, sql, data)
 
 
+def user_found_urls(user_id_hash: str, urls: list[str]):
+    sql = f"""
+    INSERT INTO urls (url, status, user_id_hash, updated) values %s
+    ON CONFLICT (url) DO UPDATE SET 
+      status = CASE
+        WHEN excluded.status={URLState.NEW.value} AND excluded.user_id_hash != urls.user_id_hash THEN {URLState.CONFIRMED.value}
+        ELSE {URLState.NEW.value}
+      END,
+      user_id_hash=excluded.user_id_hash
+    """
+
+    now = datetime.now()
+    data = [(url, URLState.NEW.value, user_id_hash, now) for url in urls]
+
+    with conn.cursor() as cursor:
+        execute_values(cursor, sql, data)
+
+
 if __name__ == "__main__":
     with get_connection() as conn:
         create_tables(conn)
-        update_url_status(conn, [URLStatus("https://mwmbl.org", URLState.NEW, "test-user", datetime.now())])
+        # update_url_status(conn, [URLStatus("https://mwmbl.org", URLState.NEW, "test-user", datetime.now())])
+        user_found_urls("Test user", ["a", "b", "c"])
+        user_found_urls("Another user", ["b", "c", "d"])
