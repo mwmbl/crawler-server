@@ -66,7 +66,8 @@ def user_found_urls(user_id_hash: str, urls: list[str]):
         WHEN excluded.status={URLState.NEW.value} AND excluded.user_id_hash != urls.user_id_hash THEN {URLState.CONFIRMED.value}
         ELSE {URLState.NEW.value}
       END,
-      user_id_hash=excluded.user_id_hash
+      user_id_hash=excluded.user_id_hash,
+      updated=excluded.updated
     """
 
     now = datetime.now()
