@@ -58,7 +58,7 @@ def update_url_status(conn, url_statuses: list[URLStatus]):
         execute_values(cursor, sql, data)
 
 
-def user_found_urls(user_id_hash: str, urls: list[str]):
+def user_found_urls(user_id_hash: str, urls: list[str], timestamp: datetime):
     sql = f"""
     INSERT INTO urls (url, status, user_id_hash, updated) values %s
     ON CONFLICT (url) DO UPDATE SET 
@@ -70,8 +70,22 @@ def user_found_urls(user_id_hash: str, urls: list[str]):
       updated=excluded.updated
     """
 
-    now = datetime.now()
-    data = [(url, URLState.NEW.value, user_id_hash, now) for url in urls]
+    data = [(url, URLState.NEW.value, user_id_hash, timestamp) for url in urls]
+
+    with conn.cursor() as cursor:
+        execute_values(cursor, sql, data)
+
+
+def user_crawled_urls(user_id_hash: str, urls: list[str], timestamp: datetime):
+    sql = f"""
+    INSERT INTO urls (url, status, user_id_hash, updated) values %s
+    ON CONFLICT (url) DO UPDATE SET 
+      status=excluded.status,
+      user_id_hash=excluded.user_id_hash,
+      updated=excluded.updated
+    """
+
+    data = [(url, URLState.CRAWLED.value, user_id_hash, timestamp) for url in urls]
 
     with conn.cursor() as cursor:
         execute_values(cursor, sql, data)
@@ -83,3 +97,4 @@ if __name__ == "__main__":
         # update_url_status(conn, [URLStatus("https://mwmbl.org", URLState.NEW, "test-user", datetime.now())])
         user_found_urls("Test user", ["a", "b", "c"])
         user_found_urls("Another user", ["b", "c", "d"])
+        user_crawled_urls("Test user", ["c"])
