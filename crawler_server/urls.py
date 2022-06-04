@@ -28,73 +28,79 @@ class URLStatus:
     updated: datetime
 
 
-def get_connection():
-    return connect(user=os.environ["USERNAME"])
+class URLDatabase:
+    def __init__(self):
+        self.connection = None
 
+    def __enter__(self):
+        self.connection = connect(user=os.environ["USERNAME"])
+        self.connection.__enter__()
+        return self
 
-def create_tables(conn):
-    sql = """
-    CREATE TABLE IF NOT EXISTS urls (
-        url VARCHAR PRIMARY KEY,
-        status INT NOT NULL DEFAULT 0,
-        user_id_hash VARCHAR NOT NULL,
-        updated TIMESTAMP NOT NULL DEFAULT NOW()
-    )
-    """
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.__exit__(exc_type, exc_val, exc_tb)
+        self.connection.close()
 
-    with conn.cursor() as cursor:
-        cursor.execute(sql)
+    def create_tables(self):
+        sql = """
+        CREATE TABLE IF NOT EXISTS urls (
+            url VARCHAR PRIMARY KEY,
+            status INT NOT NULL DEFAULT 0,
+            user_id_hash VARCHAR NOT NULL,
+            updated TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
 
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql)
 
-def update_url_status(conn, url_statuses: list[URLStatus]):
-    sql = """
-    INSERT INTO urls (url, status, user_id_hash) values %s
-    ON CONFLICT (url) DO UPDATE SET status=excluded.status, user_id_hash=excluded.user_id_hash
-    """
+    def update_url_status(self, url_statuses: list[URLStatus]):
+        sql = """
+        INSERT INTO urls (url, status, user_id_hash) values %s
+        ON CONFLICT (url) DO UPDATE SET status=excluded.status, user_id_hash=excluded.user_id_hash
+        """
 
-    data = [(status.url, status.state.value, status.user_id_hash) for status in url_statuses]
+        data = [(status.url, status.state.value, status.user_id_hash) for status in url_statuses]
 
-    with conn.cursor() as cursor:
-        execute_values(cursor, sql, data)
+        with self.connection.cursor() as cursor:
+            execute_values(cursor, sql, data)
 
+    def user_found_urls(self, user_id_hash: str, urls: list[str], timestamp: datetime):
+        sql = f"""
+        INSERT INTO urls (url, status, user_id_hash, updated) values %s
+        ON CONFLICT (url) DO UPDATE SET 
+          status = CASE
+            WHEN excluded.status={URLState.NEW.value} AND excluded.user_id_hash != urls.user_id_hash THEN {URLState.CONFIRMED.value}
+            ELSE {URLState.NEW.value}
+          END,
+          user_id_hash=excluded.user_id_hash,
+          updated=excluded.updated
+        """
 
-def user_found_urls(user_id_hash: str, urls: list[str], timestamp: datetime):
-    sql = f"""
-    INSERT INTO urls (url, status, user_id_hash, updated) values %s
-    ON CONFLICT (url) DO UPDATE SET 
-      status = CASE
-        WHEN excluded.status={URLState.NEW.value} AND excluded.user_id_hash != urls.user_id_hash THEN {URLState.CONFIRMED.value}
-        ELSE {URLState.NEW.value}
-      END,
-      user_id_hash=excluded.user_id_hash,
-      updated=excluded.updated
-    """
+        data = [(url, URLState.NEW.value, user_id_hash, timestamp) for url in urls]
 
-    data = [(url, URLState.NEW.value, user_id_hash, timestamp) for url in urls]
+        with self.connection.cursor() as cursor:
+            execute_values(cursor, sql, data)
 
-    with conn.cursor() as cursor:
-        execute_values(cursor, sql, data)
+    def user_crawled_urls(self, user_id_hash: str, urls: list[str], timestamp: datetime):
+        sql = f"""
+        INSERT INTO urls (url, status, user_id_hash, updated) values %s
+        ON CONFLICT (url) DO UPDATE SET 
+          status=excluded.status,
+          user_id_hash=excluded.user_id_hash,
+          updated=excluded.updated
+        """
 
+        data = [(url, URLState.CRAWLED.value, user_id_hash, timestamp) for url in urls]
 
-def user_crawled_urls(user_id_hash: str, urls: list[str], timestamp: datetime):
-    sql = f"""
-    INSERT INTO urls (url, status, user_id_hash, updated) values %s
-    ON CONFLICT (url) DO UPDATE SET 
-      status=excluded.status,
-      user_id_hash=excluded.user_id_hash,
-      updated=excluded.updated
-    """
-
-    data = [(url, URLState.CRAWLED.value, user_id_hash, timestamp) for url in urls]
-
-    with conn.cursor() as cursor:
-        execute_values(cursor, sql, data)
+        with self.connection.cursor() as cursor:
+            execute_values(cursor, sql, data)
 
 
 if __name__ == "__main__":
-    with get_connection() as conn:
-        create_tables(conn)
+    with URLDatabase() as db:
+        db.create_tables()
         # update_url_status(conn, [URLStatus("https://mwmbl.org", URLState.NEW, "test-user", datetime.now())])
-        user_found_urls("Test user", ["a", "b", "c"])
-        user_found_urls("Another user", ["b", "c", "d"])
-        user_crawled_urls("Test user", ["c"])
+        db.user_found_urls("Test user", ["a", "b", "c"], datetime.utcnow())
+        db.user_found_urls("Another user", ["b", "c", "d"], datetime.utcnow())
+        db.user_crawled_urls("Test user", ["c"], datetime.utcnow())

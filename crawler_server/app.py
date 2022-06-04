@@ -13,7 +13,7 @@ import boto3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from crawler_server.urls import user_found_urls, user_crawled_urls
+from crawler_server.urls import URLDatabase
 
 APPLICATION_KEY = os.environ['MWMBL_APPLICATION_KEY']
 KEY_ID = os.environ['MWMBL_KEY_ID']
@@ -111,12 +111,13 @@ def create_historical_batch(batch: HashedBatch):
     """
     Update the database state of URL crawling for old data
     """
-    found_urls = reduce(set.__or__, [set(item.links) for item in batch.items], set())
-    batch_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=batch.timestamp)
-    user_found_urls(batch.user_id_hash, list(found_urls), batch_datetime)
+    with URLDatabase() as db:
+        found_urls = reduce(set.__or__, [set(item.links) for item in batch.items], set())
+        batch_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=batch.timestamp)
+        db.user_found_urls(batch.user_id_hash, list(found_urls), batch_datetime)
 
-    crawled_urls = [item.url for item in batch]
-    user_crawled_urls(batch.user_id_hash, crawled_urls, batch_datetime)
+        crawled_urls = [item.url for item in batch.items]
+        db.user_crawled_urls(batch.user_id_hash, crawled_urls, batch_datetime)
 
 
 @app.get('/batches/{date_str}/users/{public_user_id}')
