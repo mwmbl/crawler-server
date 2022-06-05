@@ -5,7 +5,7 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from functools import reduce
-from typing import Optional
+from typing import Optional, Union
 from uuid import uuid4
 import requests
 
@@ -54,6 +54,10 @@ class Batch(BaseModel):
     items: list[Item]
 
 
+class NewBatchRequest(BaseModel):
+    user_id: str
+
+
 class HashedBatch(BaseModel):
     user_id_hash: str
     timestamp: int
@@ -76,9 +80,7 @@ def create_batch(batch: Batch):
 
     print("Got batch", batch)
 
-    id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
-    print("User ID hash", id_hash)
-    user_id_hash = id_hash
+    user_id_hash = _get_user_id_hash(batch)
 
     now = datetime.now(timezone.utc)
     seconds = (now - datetime(now.year, now.month, now.day, tzinfo=timezone.utc)).seconds
@@ -97,6 +99,8 @@ def create_batch(batch: Batch):
     data = gzip.compress(hashed_batch.json().encode('utf8'))
     upload(data, filename)
 
+    _record_urls_in_database(batch, user_id_hash, now)
+
     global last_batch
     last_batch = hashed_batch
 
@@ -106,18 +110,35 @@ def create_batch(batch: Batch):
     }
 
 
+def _get_user_id_hash(batch: Union[Batch, NewBatchRequest]):
+    return hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
+
+
+@app.post('/batches/new')
+def request_new_batch(batch_request: NewBatchRequest):
+    user_id_hash = _get_user_id_hash(batch_request)
+
+    with URLDatabase() as db:
+        return db.get_new_batch_for_user(user_id_hash)
+
+
 @app.post('/batches/historical')
 def create_historical_batch(batch: HashedBatch):
     """
     Update the database state of URL crawling for old data
     """
+    user_id_hash = batch.user_id_hash
+    batch_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=batch.timestamp)
+    _record_urls_in_database(batch, user_id_hash, batch_datetime)
+
+
+def _record_urls_in_database(batch: Union[Batch, HashedBatch], user_id_hash: str, timestamp: datetime):
     with URLDatabase() as db:
         found_urls = reduce(set.__or__, [set(item.links) for item in batch.items], set())
-        batch_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=batch.timestamp)
-        db.user_found_urls(batch.user_id_hash, list(found_urls), batch_datetime)
+        db.user_found_urls(user_id_hash, list(found_urls), timestamp)
 
         crawled_urls = [item.url for item in batch.items]
-        db.user_crawled_urls(batch.user_id_hash, crawled_urls, batch_datetime)
+        db.user_crawled_urls(user_id_hash, crawled_urls, timestamp)
 
 
 @app.get('/batches/{date_str}/users/{public_user_id}')

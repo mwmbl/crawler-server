@@ -3,11 +3,16 @@ Database storing info on URLs
 """
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 from psycopg2 import connect
 from psycopg2.extras import execute_values
+
+
+# Client has one hour to crawl a URL that has been assigned to them, or it will be reassigned
+REASSIGN_MIN_HOURS = 1
+BATCH_SIZE = 100
 
 
 class URLStatus(Enum):
@@ -81,11 +86,36 @@ class URLDatabase:
         with self.connection.cursor() as cursor:
             execute_values(cursor, sql, data)
 
+    def get_new_batch_for_user(self, user_id_hash: str):
+        sql = f"""
+        UPDATE urls SET status = {URLStatus.ASSIGNED.value}, user_id_hash = %(user_id_hash)s, updated = %(now)s
+        WHERE url IN (
+          SELECT url FROM urls
+          WHERE status = {URLStatus.CONFIRMED.value} OR (
+            status = {URLStatus.ASSIGNED.value} AND updated < %(min_updated_date)s
+          )
+          ORDER BY score DESC
+          LIMIT {BATCH_SIZE}
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING url
+        """
+
+        now = datetime.utcnow()
+        min_updated_date = now - timedelta(hours=REASSIGN_MIN_HOURS)
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, {'user_id_hash': user_id_hash, 'min_updated_date': min_updated_date, 'now': now})
+            results = cursor.fetchall()
+
+        return [result[0] for result in results]
+
 
 if __name__ == "__main__":
     with URLDatabase() as db:
         db.create_tables()
         # update_url_status(conn, [URLStatus("https://mwmbl.org", URLState.NEW, "test-user", datetime.now())])
-        db.user_found_urls("Test user", ["a", "b", "c"], datetime.utcnow())
-        db.user_found_urls("Another user", ["b", "c", "d"], datetime.utcnow())
-        db.user_crawled_urls("Test user", ["c"], datetime.utcnow())
+        # db.user_found_urls("Test user", ["a", "b", "c"], datetime.utcnow())
+        # db.user_found_urls("Another user", ["b", "c", "d"], datetime.utcnow())
+        # db.user_crawled_urls("Test user", ["c"], datetime.utcnow())
+        batch = db.get_new_batch_for_user('test user 4')
+        print("Batch", len(batch), batch)
