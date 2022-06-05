@@ -10,7 +10,7 @@ from psycopg2 import connect
 from psycopg2.extras import execute_values
 
 
-class URLState(Enum):
+class URLStatus(Enum):
     """
     URL state update is idempotent and can only progress forwards.
     """
@@ -18,14 +18,6 @@ class URLState(Enum):
     CONFIRMED = 1   # A different user has identified the same URL
     ASSIGNED = 2    # The crawler has given the URL to a user to crawl
     CRAWLED = 3     # At least one user has crawled the URL
-
-
-@dataclass
-class URLStatus:
-    url: str
-    state: URLState
-    user_id_hash: str
-    updated: datetime
 
 
 class URLDatabase:
@@ -47,6 +39,7 @@ class URLDatabase:
             url VARCHAR PRIMARY KEY,
             status INT NOT NULL DEFAULT 0,
             user_id_hash VARCHAR NOT NULL,
+            score INT NOT NULL DEFAULT 1,
             updated TIMESTAMP NOT NULL DEFAULT NOW()
         )
         """
@@ -54,30 +47,22 @@ class URLDatabase:
         with self.connection.cursor() as cursor:
             cursor.execute(sql)
 
-    def update_url_status(self, url_statuses: list[URLStatus]):
-        sql = """
-        INSERT INTO urls (url, status, user_id_hash) values %s
-        ON CONFLICT (url) DO UPDATE SET status=excluded.status, user_id_hash=excluded.user_id_hash
-        """
-
-        data = [(status.url, status.state.value, status.user_id_hash) for status in url_statuses]
-
-        with self.connection.cursor() as cursor:
-            execute_values(cursor, sql, data)
-
     def user_found_urls(self, user_id_hash: str, urls: list[str], timestamp: datetime):
         sql = f"""
-        INSERT INTO urls (url, status, user_id_hash, updated) values %s
+        INSERT INTO urls (url, status, user_id_hash, score, updated) values %s
         ON CONFLICT (url) DO UPDATE SET 
           status = CASE
-            WHEN excluded.status={URLState.NEW.value} AND excluded.user_id_hash != urls.user_id_hash THEN {URLState.CONFIRMED.value}
-            ELSE {URLState.NEW.value}
+            WHEN excluded.status={URLStatus.NEW.value}
+              AND excluded.user_id_hash != urls.user_id_hash
+            THEN {URLStatus.CONFIRMED.value}
+            ELSE {URLStatus.NEW.value}
           END,
           user_id_hash=excluded.user_id_hash,
+          score=urls.score + 1,
           updated=excluded.updated
         """
 
-        data = [(url, URLState.NEW.value, user_id_hash, timestamp) for url in urls]
+        data = [(url, URLStatus.NEW.value, user_id_hash, 1, timestamp) for url in urls]
 
         with self.connection.cursor() as cursor:
             execute_values(cursor, sql, data)
@@ -91,7 +76,7 @@ class URLDatabase:
           updated=excluded.updated
         """
 
-        data = [(url, URLState.CRAWLED.value, user_id_hash, timestamp) for url in urls]
+        data = [(url, URLStatus.CRAWLED.value, user_id_hash, timestamp) for url in urls]
 
         with self.connection.cursor() as cursor:
             execute_values(cursor, sql, data)
