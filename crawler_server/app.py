@@ -40,13 +40,23 @@ def upload(data: bytes, name: str):
     return result
 
 
-class Item(BaseModel):
-    timestamp: int
-    source: str
-    url: str
+class ItemContent(BaseModel):
     title: str
     extract: str
     links: list[str]
+
+
+class ItemError(BaseModel):
+    name: str
+    message: Optional[str]
+
+
+class Item(BaseModel):
+    url: str
+    status: Optional[int]
+    timestamp: int
+    content: Optional[ItemContent]
+    error: Optional[ItemError]
 
 
 class Batch(BaseModel):
@@ -78,8 +88,6 @@ def create_batch(batch: Batch):
     if len(batch.user_id) != USER_ID_LENGTH:
         raise HTTPException(400, f"User ID length is incorrect, should be {USER_ID_LENGTH} characters")
 
-    print("Got batch", batch)
-
     user_id_hash = _get_user_id_hash(batch)
 
     now = datetime.now(timezone.utc)
@@ -107,6 +115,7 @@ def create_batch(batch: Batch):
     return {
         'status': 'ok',
         'public_user_id': user_id_hash,
+        'url': f'{PUBLIC_URL_PREFIX}{filename}',
     }
 
 
@@ -134,8 +143,13 @@ def create_historical_batch(batch: HashedBatch):
 
 def _record_urls_in_database(batch: Union[Batch, HashedBatch], user_id_hash: str, timestamp: datetime):
     with URLDatabase() as db:
-        found_urls = reduce(set.__or__, [set(item.links) for item in batch.items], set())
-        db.user_found_urls(user_id_hash, list(found_urls), timestamp)
+        found_urls = set()
+        for item in batch.items:
+            if item.content is not None:
+                found_urls |= set(item.content.links)
+
+        if len(found_urls) > 0:
+            db.user_found_urls(user_id_hash, list(found_urls), timestamp)
 
         crawled_urls = [item.url for item in batch.items]
         db.user_crawled_urls(user_id_hash, crawled_urls, timestamp)
