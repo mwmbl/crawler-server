@@ -80,6 +80,12 @@ app = FastAPI()
 last_batch = None
 
 
+@app.on_event("startup")
+async def on_startup():
+    with URLDatabase() as db:
+        return db.create_tables()
+
+
 @app.post('/batches/')
 def create_batch(batch: Batch):
     if len(batch.items) > MAX_BATCH_SIZE:
