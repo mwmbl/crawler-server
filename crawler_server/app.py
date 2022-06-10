@@ -3,7 +3,9 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from functools import reduce
+from typing import Optional, Union
 from uuid import uuid4
 import requests
 
@@ -11,6 +13,7 @@ import boto3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from crawler_server.urls import URLDatabase
 
 APPLICATION_KEY = os.environ['MWMBL_APPLICATION_KEY']
 KEY_ID = os.environ['MWMBL_KEY_ID']
@@ -37,18 +40,32 @@ def upload(data: bytes, name: str):
     return result
 
 
-class Item(BaseModel):
-    timestamp: int
-    source: str
-    url: str
+class ItemContent(BaseModel):
     title: str
     extract: str
     links: list[str]
 
 
+class ItemError(BaseModel):
+    name: str
+    message: Optional[str]
+
+
+class Item(BaseModel):
+    url: str
+    status: Optional[int]
+    timestamp: int
+    content: Optional[ItemContent]
+    error: Optional[ItemError]
+
+
 class Batch(BaseModel):
     user_id: str
     items: list[Item]
+
+
+class NewBatchRequest(BaseModel):
+    user_id: str
 
 
 class HashedBatch(BaseModel):
@@ -63,6 +80,12 @@ app = FastAPI()
 last_batch = None
 
 
+@app.on_event("startup")
+async def on_startup():
+    with URLDatabase() as db:
+        return db.create_tables()
+
+
 @app.post('/batches/')
 def create_batch(batch: Batch):
     if len(batch.items) > MAX_BATCH_SIZE:
@@ -71,11 +94,7 @@ def create_batch(batch: Batch):
     if len(batch.user_id) != USER_ID_LENGTH:
         raise HTTPException(400, f"User ID length is incorrect, should be {USER_ID_LENGTH} characters")
 
-    print("Got batch", batch)
-
-    id_hash = hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
-    print("User ID hash", id_hash)
-    user_id_hash = id_hash
+    user_id_hash = _get_user_id_hash(batch)
 
     now = datetime.now(timezone.utc)
     seconds = (now - datetime(now.year, now.month, now.day, tzinfo=timezone.utc)).seconds
@@ -94,13 +113,52 @@ def create_batch(batch: Batch):
     data = gzip.compress(hashed_batch.json().encode('utf8'))
     upload(data, filename)
 
+    _record_urls_in_database(batch, user_id_hash, now)
+
     global last_batch
     last_batch = hashed_batch
 
     return {
         'status': 'ok',
         'public_user_id': user_id_hash,
+        'url': f'{PUBLIC_URL_PREFIX}{filename}',
     }
+
+
+def _get_user_id_hash(batch: Union[Batch, NewBatchRequest]):
+    return hashlib.sha3_256(batch.user_id.encode('utf8')).hexdigest()
+
+
+@app.post('/batches/new')
+def request_new_batch(batch_request: NewBatchRequest):
+    user_id_hash = _get_user_id_hash(batch_request)
+
+    with URLDatabase() as db:
+        return db.get_new_batch_for_user(user_id_hash)
+
+
+@app.post('/batches/historical')
+def create_historical_batch(batch: HashedBatch):
+    """
+    Update the database state of URL crawling for old data
+    """
+    user_id_hash = batch.user_id_hash
+    batch_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=batch.timestamp)
+    _record_urls_in_database(batch, user_id_hash, batch_datetime)
+
+
+def _record_urls_in_database(batch: Union[Batch, HashedBatch], user_id_hash: str, timestamp: datetime):
+    with URLDatabase() as db:
+        found_urls = set()
+        for item in batch.items:
+            if item.content is not None:
+                found_urls |= set(item.content.links)
+
+        if len(found_urls) > 0:
+            db.user_found_urls(user_id_hash, list(found_urls), timestamp)
+
+        crawled_urls = [item.url for item in batch.items]
+        db.user_crawled_urls(user_id_hash, crawled_urls, timestamp)
 
 
 @app.get('/batches/{date_str}/users/{public_user_id}')
