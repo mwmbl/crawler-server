@@ -66,11 +66,11 @@ class URLDatabase:
             ELSE {URLStatus.NEW.value}
           END,
           user_id_hash = CASE
-            WHEN urls.status={URLStatus.ASSIGNED} THEN urls.user_id_hash ELSE excluded.user_id_hash
+            WHEN urls.status={URLStatus.ASSIGNED.value} THEN urls.user_id_hash ELSE excluded.user_id_hash
           END,
           score=urls.score + 1,
           updated = CASE
-            WHEN urls.status={URLStatus.ASSIGNED} THEN urls.update ELSE excluded.updated
+            WHEN urls.status={URLStatus.ASSIGNED.value} THEN urls.update ELSE excluded.updated
           END
         """
 
