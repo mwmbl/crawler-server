@@ -70,7 +70,7 @@ class URLDatabase:
           END,
           score=urls.score + 1,
           updated = CASE
-            WHEN urls.status={URLStatus.ASSIGNED.value} THEN urls.update ELSE excluded.updated
+            WHEN urls.status={URLStatus.ASSIGNED.value} THEN urls.updated ELSE excluded.updated
           END
         """
 
