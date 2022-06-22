@@ -58,14 +58,20 @@ class URLDatabase:
         ON CONFLICT (url) DO UPDATE SET 
           status = CASE
             WHEN urls.status={URLStatus.CRAWLED.value} THEN {URLStatus.CRAWLED.value}
+            WHEN urls.status={URLStatus.CONFIRMED.value} THEN {URLStatus.CONFIRMED.value}
+            WHEN urls.status={URLStatus.ASSIGNED.value} THEN {URLStatus.ASSIGNED.value}
             WHEN urls.status={URLStatus.NEW.value}
               AND excluded.user_id_hash != urls.user_id_hash
             THEN {URLStatus.CONFIRMED.value}
             ELSE {URLStatus.NEW.value}
           END,
-          user_id_hash=excluded.user_id_hash,
+          user_id_hash = CASE
+            WHEN urls.status={URLStatus.ASSIGNED} THEN urls.user_id_hash ELSE excluded.user_id_hash
+          END,
           score=urls.score + 1,
-          updated=excluded.updated
+          updated = CASE
+            WHEN urls.status={URLStatus.ASSIGNED} THEN urls.update ELSE excluded.updated
+          END
         """
 
         data = [(url, URLStatus.NEW.value, user_id_hash, 1, timestamp) for url in urls]
