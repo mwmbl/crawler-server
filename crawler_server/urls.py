@@ -57,6 +57,7 @@ class URLDatabase:
         INSERT INTO urls (url, status, user_id_hash, score, updated) values %s
         ON CONFLICT (url) DO UPDATE SET 
           status = CASE
+            WHEN excluded.status={URLStatus.CRAWLED.value} THEN {URLStatus.CRAWLED.value}
             WHEN excluded.status={URLStatus.NEW.value}
               AND excluded.user_id_hash != urls.user_id_hash
             THEN {URLStatus.CONFIRMED.value}
